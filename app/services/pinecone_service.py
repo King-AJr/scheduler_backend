@@ -1,3 +1,4 @@
+import uuid
 from pinecone import Pinecone, ServerlessSpec
 from typing import Dict, List, Optional
 from app.core.config import get_settings
@@ -14,7 +15,7 @@ class PineconeService:
         if not self.pc.has_index(self.index_name):
             self.pc.create_index(
                 name=self.index_name,
-                dimension=1024,
+                dimension=1024,  # Dimension for mxbai-embed-large
                 spec=ServerlessSpec(
                     cloud="aws",
                     region="us-east-1"
@@ -24,17 +25,20 @@ class PineconeService:
 
     async def store_event(self, user_id: str, event: Dict, embedding: List[float]):
         """Store an event with its embedding in Pinecone."""
-        # Create a unique ID for the event
-        event_id = f"{user_id}_{event.get('title')}_{event.get('date')}"
+        # Create a unique ID for the event using the user_id and a generated UUID
+        event_id = f"{user_id}_{uuid.uuid4()}"
         
-        # Store the event with its embedding
+        # Create an event summary from the entire event dict
+        event_summary = f"Event details: {event}"
+        
+        # Store the event with its embedding and full metadata
         self.index.upsert(
             vectors=[(
                 event_id,
                 embedding,
                 {
                     'user_id': user_id,
-                    'content': f"Event: {event.get('title')} on {event.get('date')}",
+                    'content': event_summary,
                     **event
                 }
             )]
@@ -51,8 +55,8 @@ class PineconeService:
         
         # Extract and return the events from the results
         events = []
-        for match in results['matches']:
-            if match['metadata']:
+        for match in results.get('matches', []):
+            if match.get('metadata'):
                 events.append(match['metadata'])
         
-        return events 
+        return events

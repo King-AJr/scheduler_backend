@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import scheduler
 from app.api.routes import auth
 from app.core.config import get_settings
+import firebase_admin
+
+firebase_admin.initialize_app()
 
 settings = get_settings()
 
