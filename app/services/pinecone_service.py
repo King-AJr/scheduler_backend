@@ -15,7 +15,7 @@ class PineconeService:
         if not self.pc.has_index(self.index_name):
             self.pc.create_index(
                 name=self.index_name,
-                dimension=1024, 
+                dimension=768, 
                 spec=ServerlessSpec(
                     cloud="aws",
                     region="us-east-1"
