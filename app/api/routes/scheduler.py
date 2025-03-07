@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from app.services.auth_service import AuthService
 from app.services.scheduler_service import SchedulerService
-from app.models.schemas import ChatMessage, ChatResponse
+from app.models.chat import ChatMessage, ChatResponse
 
 router = APIRouter()
 scheduler_service = SchedulerService()

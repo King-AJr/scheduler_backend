@@ -1,10 +1,14 @@
 from typing import Dict, List
 from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class OllamaService:
-    def __init__(self, model_name: str = "mxbai-embed-large"):
-        self.embeddings = OllamaEmbeddings(model=model_name)
+    def __init__(self, model_name: str = "cointegrated/LaBSE-en-ru"):
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            encode_kwargs={'normalize_embeddings': True}
+        )
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=50,

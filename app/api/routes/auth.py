@@ -1,20 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.models.auth import LoginRequest, SignUpRequest
 from app.services.auth_service import AuthService
-from pydantic import BaseModel
-from typing import Optional
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 router = APIRouter()
 security = HTTPBearer()
-
-class SignUpRequest(BaseModel):
-    email: str
-    password: str
-    display_name: Optional[str] = None
-
-class LoginRequest(BaseModel):
-    email: str
-    password: str
 
 @router.post("/login")
 async def login(credentials: LoginRequest):
@@ -25,6 +15,7 @@ async def login(credentials: LoginRequest):
 
 @router.post("/signup")
 async def signup(user_data: SignUpRequest):
+    print(f"User data: {user_data}")
     return await AuthService.create_user(
         email=user_data.email,
         password=user_data.password,
