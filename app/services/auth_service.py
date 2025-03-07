@@ -41,9 +41,11 @@ class AuthService:
                 )
 
             auth_data = response.json()
+            print(f"Auth data: {auth_data}")
             
             # Get user profile information
             user = auth.get_user(auth_data["localId"])
+            # print(f"User: {user.UserRecord}")
             
             return {
                 "message": "Login successful",

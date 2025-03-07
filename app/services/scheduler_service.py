@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 import json
 from app.services.groq_service import GroqService
@@ -14,111 +14,90 @@ class SchedulerService:
         self.firestore = FirestoreService()
 
     async def process_message(self, user_id: str, message: str) -> str:
-        # Get today's date for context
         today = datetime.now().strftime("%Y-%m-%d")
-        
-        # Combine message with today's date for better embedding context
         message_with_date = f"{message} (context: today is {today})"
-        
-        # First determine if this is a schedule query or an event addition
+
+        # Fetch recent conversation history
+        recent_conversations = await self.firestore.get_user_conversations(user_id, limit=10)
+        conversation_context = []
+        for conv in recent_conversations:
+            conversation_context.extend([
+                {"role": "user", "content": conv['message']},
+                {"role": "assistant", "content": conv['response']}
+            ])
+
         is_query = await self._is_schedule_query(message)
-        
+
         if is_query:
-            # --- Handling Schedule Queries ---
             print('Processing schedule query...')
             query_embedding = await self.ollama.get_embedding(message_with_date)
-            events = await self.pinecone.search_events(user_id, query_embedding, top_k=20)
-            
-            # Construct a conversational system prompt
+            events = await self.pinecone.search_events(user_id, query_embedding, top_k=10)
+
             system_prompt = (
-                "Hi there! I'm your scheduling assistant. Let me check your calendar for you. "
-                "I'll provide you with the details of your upcoming events and even offer some suggestions if needed."
+                "Hi there! I'm your personal scheduling assistant. "
+                "It seems you might be asking about your schedule or interacting with me. "
+                "I can help review your upcoming events, provide details, or even set reminders based on your needs."
             )
-            
-            # Prepare the prompt with context
+
             prompt = [{"role": "system", "content": system_prompt}]
+            # Add conversation history
+            prompt.extend(conversation_context)
+            
             if events:
-                # Include the event details in a friendly, conversational style
                 prompt.append({
-                    "role": "system",
-                    "content": (
-                        f"Today is {today}. Here are some events I found: {json.dumps(events, default=str)}. "
-                        "I noticed a few events that might need a reminder or additional details. "
-                        "Would you like me to help set a reminder or get more details on any of these?"
+                    "role": "system", "content": (
+                        f"Today is {today}. I found the following events on your calendar: {json.dumps(events, default=str)}. "
+                        "You can ask for more details, set reminders, or make changes to any event if needed. But if the user is not asking about an event respond appropriately"
                     )
                 })
             else:
                 prompt.append({
-                    "role": "system",
-                    "content": (
-                        f"Today is {today}. I couldn't find any events on your schedule. "
-                        "Would you like to add a new event or perhaps check again later?"
+                    "role": "system", "content": (
+                        f"Today is {today}. I couldn't locate any events in your calendar. "
+                        "Would you like to add a new event, or do you have another query I can assist with?"
                     )
                 })
             prompt.append({"role": "user", "content": message})
         
         else:
-            # --- Handling Event Additions ---
-            is_event = await self._is_event_addition(message)
+            print('Processing event addition...')
+            system_prompt = (
+                "Hi there! I'm here to help you add a new event to your calendar. "
+                "Please ensure you include all necessary details such as title, date, time, and location."
+            )
+            embedding = await self.ollama.get_embedding(message_with_date)
+            event_data = {"content": message_with_date, "status": "complete", "timestamp": today}
+            await self.pinecone.store_event(user_id, event_data, embedding)
+            event_completion_prompt = [
+                {"role": "system", "content": system_prompt},
+                # Add conversation history
+                *conversation_context,
+                {"role": "user", "content": message}
+            ]
+
+            event_response = await self.groq.generate(event_completion_prompt)
+            event_details = await self._extract_event_details(event_response)
             
-            if is_event:
-                # Check if the event details are complete using a new classifier
-                is_complete = await self._is_event_complete(message)
-                if not is_complete:
-                    # If incomplete, work with a draft event and ask for more details
-                    print('Processing partial event addition...')
-                    draft_event = await self.firestore.get_draft_event(user_id)
-                    if draft_event:
-                        updated_event = self._merge_event_details(draft_event, message)
-                        await self.firestore.update_draft_event(user_id, updated_event)
-                        response_text = (
-                            "I've updated your draft event with what you just mentioned. "
-                            "Could you please share more details—like the exact time, location, or who will be joining? "
-                            "This will help me set it up perfectly for you."
-                        )
-                    else:
-                        # Create a new draft if none exists
-                        draft_event = {"content": message, "status": "draft", "timestamp": today}
-                        await self.firestore.create_draft_event(user_id, draft_event)
-                        response_text = (
-                            "I noticed you mentioned an event, but I need a bit more info. "
-                            "Could you please tell me the time, location, or any other details so I can add it properly?"
-                        )
-                else:
-                    # For complete event details, save the event and clear any draft
-                    print('Processing complete event addition...')
-                    embedding = await self.ollama.get_embedding(message_with_date)
-                    event_data = {"content": message, "status": "complete", "timestamp": today}
-                    await self.pinecone.store_event(user_id, event_data, embedding)
-                    await self.firestore.delete_draft_event(user_id)
-                    response_text = (
-                        "Great! I've saved your event. Is there anything else you'd like to add or any questions about your schedule?"
-                    )
-                
-                # Use a conversational system prompt for event additions
-                system_prompt = (
-                    "Hi! I'm your scheduling assistant. " + response_text
+            if event_details:
+                embedding = await self.ollama.get_embedding(message_with_date)
+                await self.pinecone.store_event(user_id, event_details, embedding)
+                response_text = (
+                    f"Your event has been successfully saved with the following details: {event_details}. "
+                    "If any information is missing or you need changes, please let me know!"
                 )
-                prompt = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message}
-                ]
             else:
-                # --- Handling General Conversation ---
-                print('Processing general chat...')
-                system_prompt = (
-                    "Hello! I'm here to help you with your schedule and any questions you might have about your calendar. "
-                    "Feel free to ask me anything or let me know how I can assist you today."
+                response_text = (
+                    "I need a bit more information to add your event. "
+                    "Could you please provide the title, date, time, and location?"
                 )
-                prompt = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message}
-                ]
+            
+            prompt = [
+                {"role": "system", "content": response_text},
+                {"role": "user", "content": message}
+            ]
         
-        # Generate a response using the conversational prompt
+        prompt.extend(conversation_context)
         response = await self.groq.generate(prompt)
-        
-        # Save the conversation for future context and to improve suggestions
         await self.firestore.store_conversation(user_id, message, response)
         
         return response
@@ -126,55 +105,29 @@ class SchedulerService:
     async def _is_schedule_query(self, message: str) -> bool:
         prompt = [
             {"role": "system", "content": (
-                "You are a classifier that determines if a message is specifically asking about schedules, events, or calendar information.\n"
-                "Return ONLY 'true' or 'false'.\n\n"
-                "Return 'true' ONLY if the message:\n"
-                "- Explicitly asks about upcoming events, appointments, or meetings\n"
-                "- Asks about what's on the schedule for a specific time/date\n"
-                "- Inquires about calendar availability\n"
-                "- Asks about event details or timing\n\n"
-                "Return 'false' for general or casual mentions."
+                "You are a classifier that determines whether a message is asking about reviewing schedules or general calendar queries, "
+                "versus storing/adding a new event. If the message is about storing or adding an event, return 'false'. "
+                "If it is a query about the schedule or a general interaction, return 'true'. "
+                "Return ONLY 'true' or 'false'."
             )},
             {"role": "user", "content": message}
         ]
         response = await self.groq.generate(prompt)
+        print(f"Response: {response}")
         return 'true' in response.lower()
 
-    async def _is_event_addition(self, message: str) -> bool:
+    async def _extract_event_details(self, response: str) -> Dict:
         prompt = [
             {"role": "system", "content": (
-                "You are a classifier that determines if a message is explicitly adding a new event or appointment to a schedule.\n"
-                "Return ONLY 'true' or 'false'.\n\n"
-                "Return 'true' ONLY if the message:\n"
-                "- Clearly states adding a new event or appointment\n"
-                "- Contains specific event details (time, date, description)\n"
-                "- Uses scheduling-related verbs (schedule, add, book, set up)\n"
-                "- Includes both what the event is and when it occurs\n\n"
-                "Return 'false' otherwise."
+                "Extract event details from the following response. "
+                "Ensure that the details include 'title', 'date', 'time', and 'location'. "
+                "If any detail is missing, return an empty dictionary. "
+                "Please provide the output as structured JSON."
             )},
-            {"role": "user", "content": message}
+            {"role": "user", "content": response}
         ]
-        response = await self.groq.generate(prompt)
-        return 'true' in response.lower()
-
-    async def _is_event_complete(self, message: str) -> bool:
-        # Classifier to check if the event message includes complete details
-        prompt = [
-            {"role": "system", "content": (
-                "You are a classifier that checks whether an event message includes all necessary details.\n"
-                "Return ONLY 'true' or 'false'.\n\n"
-                "Return 'true' ONLY if the message includes:\n"
-                "- A specific date and time\n"
-                "- Details about the event (e.g., meeting purpose, participants, location)\n\n"
-                "Return 'false' if any of these details are missing."
-            )},
-            {"role": "user", "content": message}
-        ]
-        response = await self.groq.generate(prompt)
-        return 'true' in response.lower()
-
-    def _merge_event_details(self, existing_event: Dict, new_message: str) -> Dict:
-        # Merge new details with the existing draft content in a conversational manner
-        merged_content = f"{existing_event.get('content', '')} {new_message}"
-        existing_event['content'] = merged_content.strip()
-        return existing_event
+        extracted_details = await self.groq.generate(prompt)
+        try:
+            return json.loads(extracted_details)
+        except json.JSONDecodeError:
+            return {}
