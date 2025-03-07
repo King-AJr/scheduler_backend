@@ -5,7 +5,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 class OllamaService:
     def __init__(self, model_name: str = "cointegrated/LaBSE-en-ru"):
-        self.embeddings = HuggingFaceEmbeddings(model=model_name)
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            encode_kwargs={'normalize_embeddings': True}
+        )
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=50,
