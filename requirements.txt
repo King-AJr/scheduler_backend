@@ -12,3 +12,6 @@ groq
 pinecone-client
 ollama
 langchain-text-splitters 
+assemblyai
+elevenlabs
+pyaudio

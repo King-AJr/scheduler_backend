@@ -1,0 +1,7 @@
+faster-whisper==0.10.0
+sounddevice==0.4.6
+numpy==1.26.4
+pygame==2.5.2
+elevenlabs==0.3.0
+groq==0.4.0
+python-dotenv==1.0.1
