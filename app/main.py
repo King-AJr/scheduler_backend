@@ -16,8 +16,8 @@ app = FastAPI(title=settings.PROJECT_NAME)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "https://schedule-assistant-frontend.vercel.app"],
-    allow_credentials=True,
+    allow_origins=[*],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
