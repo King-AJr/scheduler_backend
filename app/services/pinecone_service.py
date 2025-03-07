@@ -15,7 +15,7 @@ class PineconeService:
         if not self.pc.has_index(self.index_name):
             self.pc.create_index(
                 name=self.index_name,
-                dimension=768,  # Dimension for mxbai-embed-large
+                dimension=1024, 
                 spec=ServerlessSpec(
                     cloud="aws",
                     region="us-east-1"
